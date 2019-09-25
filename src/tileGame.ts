@@ -6,18 +6,12 @@ const source = new AudioSource(clip)
 
 const startEvents = engine.getComponentGroup(TGE.StartTiltGameEvent)
 const clickEvents = engine.getComponentGroup(TGE.TileClickEvent)
-
-enum S {
-  isPlaying = 1,
-  isReading = 2
-}
    
 export class TileGame implements ISystem {
 
   private parent: Entity
   private tiles: Tile[][]
-  private tileEmisseveMaterial
-    private tileDefaultMaterial
+  private audioSourceEntity: Entity
 
     private sequence: [number, number][]
     private tileDuration: number
@@ -26,29 +20,22 @@ export class TileGame implements ISystem {
 
   constructor(parent: Entity) {
       this.parent = parent
-       //this.start() 
-  }
-
-    public restart(){
-        this.sequence = []
-
-        log("tilt game restarted")
     }
-    private start() {
-  
-        this.tileDuration = 1
-        this.sequence = []
 
-        let audioSourceEntity = new Entity("AudioSource")
-        audioSourceEntity.addComponent(source)
-        audioSourceEntity.setParent(this.parent)
+    activate() {
 
-        log("tilt game inited")
-        this.tileDefaultMaterial = new Material()
-        this.tileDefaultMaterial.albedoColor = Color3.Black()
-        this.tileDefaultMaterial.emissiveColor = Color3.Black()
-        this.tileDefaultMaterial.emissiveIntensity = 0
- 
+        // create all entities when engine.addSystem(tileGame)
+
+        this.audioSourceEntity = new Entity("AudioSource")
+        this.audioSourceEntity.addComponent(source)
+        this.audioSourceEntity.setParent(this.parent)
+
+        log("tileGame: creating tiles")
+        let tileDefaultMaterial = new Material()
+        tileDefaultMaterial.albedoColor = Color3.Black()
+        tileDefaultMaterial.emissiveColor = Color3.Black()
+        tileDefaultMaterial.emissiveIntensity = 0
+
         this.tiles = []
         for (let y = 0; y < 3; y += 1) {
             this.tiles[y] = []
@@ -57,7 +44,7 @@ export class TileGame implements ISystem {
                 let tileEntity = new Entity()
                 tileEntity.setParent(this.parent)
                 tileEntity.addComponent(new BoxShape())
-                tileEntity.addComponent(this.tileDefaultMaterial)
+                tileEntity.addComponent(tileDefaultMaterial)
                 tileEntity.addComponent(new Transform({
                     position: new Vector3(x, y, 0),
                     rotation: Quaternion.Euler(90, 0, 0),
@@ -70,7 +57,7 @@ export class TileGame implements ISystem {
                 emisseveMaterial.emissiveColor = color
                 emisseveMaterial.emissiveIntensity = 5
 
-                let tile = new Tile(x, y, this.tileDefaultMaterial, emisseveMaterial, tileEntity)
+                let tile = new Tile(x, y, tileDefaultMaterial, emisseveMaterial, tileEntity)
                 tileEntity.addComponent(tile)
                 this.tiles[y][x] = tile
 
@@ -82,6 +69,26 @@ export class TileGame implements ISystem {
                     }))
             }
         }
+    }
+
+    deactivate() {
+
+        // remove all entities when engine.removeSystem(tileGame)
+        engine.removeEntity(this.audioSourceEntity)
+
+        for (let y = 0; y < 3; y += 1) {
+            for (let x = 0; x < 3; x += 1) {
+                const tile = this.tiles[y][x]
+                engine.removeEntity(tile.entity)
+                this.tiles[y][x] = null
+            }
+        }
+    }
+
+    private start() {
+  
+        this.tileDuration = 1
+        this.sequence = []
 
         executeTask(async () => {
 
@@ -151,10 +158,6 @@ export class TileGame implements ISystem {
         }
     }
 
-    /*private toggle(x: number, y: number) {
-        this.tiles[y][x].toggle()
-    }*/
-
     private setTileActive(xy: [number, number], value: boolean) {
         this.tiles[xy[1]][xy[0]].setActive(value)
     }
@@ -190,10 +193,10 @@ const colorList9 = [
 
 @Component("Tile")
 class Tile {
-    private x: number
-    private y: number
-    private entity: Entity
-  private isEmissive: boolean
+    public x: number
+    public y: number
+    public entity: Entity
+    public isActive: boolean
   private defaultMaterial: Material
   private emisseveMaterial: Material
 
@@ -204,37 +207,20 @@ class Tile {
          this.defaultMaterial = defaultMaterial
         this.emisseveMaterial = emissiveMaterial
         this.entity = entity
-        this.isEmissive = false;
+        this.isActive = false;
   }
 
     public setActive(value: boolean) {
         if (value) {
             this.entity.addComponentOrReplace(this.emisseveMaterial)
-            this.isEmissive = true
+            this.isActive = true
             source.volume = 1
             source.playOnce()
         }
         else {
             this.entity.addComponentOrReplace(this.defaultMaterial)
-            this.isEmissive = false
+            this.isActive = false
         }
     }
-
-  /*public toggle() {
-    if (this.isEmissive == false) {
-      this.entity.addComponentOrReplace(this.emisseveMaterial)
-      this.isEmissive = true
-      source.volume = 1
-      //source.playOnce()
-      source.playing = true
-      source.loop = true
-      log("play")
-    }
-    else {
-      this.entity.addComponentOrReplace(this.defaultMaterial)
-      this.isEmissive = false
-      log("play")
-    }
-  }*/
 }
 
