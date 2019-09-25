@@ -38,7 +38,7 @@ buttonEntity.addComponent(
       buttonEntity.addComponentOrReplace(buttonDefaultMaterial)
 
       const playCommand = new Entity();
-      playCommand.addComponent(new TGE.StartTiltGameEvent())
+      playCommand.addComponent(new TGE.PlayTiltGameCommand())
       engine.addEntity(playCommand)
     })
 )

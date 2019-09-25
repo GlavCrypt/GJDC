@@ -1,5 +1,8 @@
-@Component("StartTiltGameEvent")
-export class StartTiltGameEvent { }
+@Component("PlayTiltGameCommand")
+export class PlayTiltGameCommand { }
+
+@Component("StopTiltGameCommand")
+export class StopTiltGameCommand { }
 
 @Component("TileClickEvent")
 export class TileClickEvent {

@@ -1,25 +1,28 @@
 import * as TGE from "./TileGameEvents"
-import { Tools } from "./tools"
+import * as Tools from "./tools"
 
 const clip = new AudioClip('audio/blink.mp3')
 const source = new AudioSource(clip)
 
-const startEvents = engine.getComponentGroup(TGE.StartTiltGameEvent)
+const playCommands = engine.getComponentGroup(TGE.PlayTiltGameCommand)
+const stopCommands = engine.getComponentGroup(TGE.StopTiltGameCommand)
 const clickEvents = engine.getComponentGroup(TGE.TileClickEvent)
    
 export class TileGame implements ISystem {
 
-  private parent: Entity
-  private tiles: Tile[][]
-  private audioSourceEntity: Entity
+    private parent: Entity
+    private tiles: Tile[][]
+    private audioSourceEntity: Entity
+
+    private cancelToken: Tools.CancelToken
 
     private sequence: [number, number][]
     private tileDuration: number
 
     private lastClick: [number, number]
 
-  constructor(parent: Entity) {
-      this.parent = parent
+    constructor(parent: Entity) {
+        this.parent = parent
     }
 
     activate() {
@@ -74,6 +77,8 @@ export class TileGame implements ISystem {
     deactivate() {
 
         // remove all entities when engine.removeSystem(tileGame)
+
+        this.stop()
         engine.removeEntity(this.audioSourceEntity)
 
         for (let y = 0; y < 3; y += 1) {
@@ -85,69 +90,20 @@ export class TileGame implements ISystem {
         }
     }
 
-    private start() {
-  
-        this.tileDuration = 1
-        this.sequence = []
-
-        executeTask(async () => {
-
-            try {
-                await delay(3000)
-                this.sequence.push(randomPositionExcept([-1, -1]))
-
-                let score = 0
-
-                while (true) {
-                    for (let xy of this.sequence) {
-                        this.setTileActive(xy, true)
-                        await delay(this.tileDuration * 1000)
-                        this.setTileActive(xy, false)
-                    }
-
-                    
-
-                    let wrong = false;
-                    for (let i = 0; i < this.sequence.length; i++) {
-                        this.lastClick = null
-                        while (this.lastClick == null)
-                            await delay(50)
-
-                        wrong = wrong ||
-                            this.lastClick[0] != this.sequence[i][0] ||
-                            this.lastClick[1] != this.sequence[i][1]
-
-                        this.setTileActive(this.lastClick, true)
-                        await delay(this.tileDuration * 200)
-                        this.setTileActive(this.lastClick, false)
-                    }
-
-                    if (wrong)
-                        break;
-
-                    await delay(this.tileDuration * 500)
-                    score += 1
-
-                    let lastElement = this.sequence[this.sequence.length - 1]
-                    this.sequence.push(randomPositionExcept(lastElement))
-                }
-
-                log("GOOD GAME. YOU SCORE IS " + score)
-            }
-            catch (ex) {
-                log(ex)
-            }
-        }) 
-    }
-
     update(dt: number) {
-        for (let entity of startEvents.entities) {
 
-            log("start event")
-
+        for (let entity of stopCommands.entities) {
             engine.removeEntity(entity)
 
-            this.start()
+            log("tileGame: stop event")
+            this.stop()
+        }
+
+        for (let entity of playCommands.entities) {
+            engine.removeEntity(entity)
+
+            log("tileGame: start event")
+            this.startOrRestart()
         }
 
         for (let entity of clickEvents.entities) {
@@ -158,18 +114,109 @@ export class TileGame implements ISystem {
         }
     }
 
+    private startOrRestart() {
+        const isStarted = this.cancelToken != null && !this.cancelToken.isCancelled;
+        if (isStarted) {
+
+            this.stop()
+            this.start()
+        }
+        else {
+            this.start()
+        }
+    }
+
+    private start() {
+
+        this.cancelToken = new Tools.CancelToken()
+
+        this.tileDuration = .75
+        this.sequence = []
+
+        executeTask(async () => {
+
+            try {
+
+                // reset board
+                for (let y = 0; y < 3; y += 1) {
+                    for (let x = 0; x < 3; x += 1) {
+                        this.setTileActive([x, y], false)
+                    }
+                }
+
+                await delayWithCancel(750, this.cancelToken)
+                this.sequence.push(randomPositionExcept([-1, -1]))
+
+                let score = 0
+
+                while (true) {
+                    // play sequence
+                    for (let xy of this.sequence) {
+                        this.setTileActive(xy, true)
+                        await delayWithCancel(this.tileDuration * 1000, this.cancelToken)
+                        this.setTileActive(xy, false)
+                    }
+
+                    // read input
+                    this.lastClick = null
+                    let wrong = false;
+                    let lastInputPos = [-1, -1]
+                    for (let i = 0; i < this.sequence.length; i++) {
+                        while (this.lastClick == null ||
+                               (this.lastClick[0] == lastInputPos[0] &&
+                                this.lastClick[1] == lastInputPos[1])) {
+                            await delayWithCancel(50, this.cancelToken)
+                        }
+
+                        wrong = wrong ||
+                            this.lastClick[0] != this.sequence[i][0] ||
+                            this.lastClick[1] != this.sequence[i][1]
+
+                        let activeTile = this.lastClick
+                        lastInputPos = this.lastClick
+                        this.lastClick = null
+
+                        this.setTileActive(activeTile, true)
+                        await delayWithCancel(this.tileDuration * 1000, this.cancelToken)
+                        this.setTileActive(activeTile, false)
+                    }
+
+                    if (wrong)
+                        break;
+
+                    score += 1
+                    await delayWithCancel(300, this.cancelToken)
+
+                    // add new element to sequence
+                    let lastElement = this.sequence[this.sequence.length - 1]
+                    this.sequence.push(randomPositionExcept(lastElement))
+                }
+
+                log("GOOD GAME. YOU SCORE IS " + score)
+            }
+            catch (ex) {
+                log("tilGame execution error:")
+                log(ex)
+            }
+        })
+    }
+
+    private stop() {
+        this.cancelToken.cancel("tileGame.startOrRestart()")
+    }
+
     private setTileActive(xy: [number, number], value: boolean) {
         this.tiles[xy[1]][xy[0]].setActive(value)
     }
 }
 
 function randomPositionExcept(i: [number, number]): [number, number] {
-    let randX = Tools.getRandomInt(3)
-    let randY = Tools.getRandomInt(3)
+    let randX = Tools.Tools.getRandomInt(3)
+    let randY = Tools.Tools.getRandomInt(3)
 
     while (randX == i[0] && randY == i[1]) {
-        randX = Tools.getRandomInt(3)
-        randY = Tools.getRandomInt(3)
+        randX = Tools.Tools.getRandomInt(3)
+        randY = Tools.Tools.getRandomInt(3)
     }
 
     return [randX, randY]
@@ -177,6 +224,14 @@ function randomPositionExcept(i: [number, number]): [number, number] {
 
 function delay(ms: number) {
     return new Promise(resolve => globalThis.setTimeout(resolve, ms));
+}
+
+function delayWithCancel(ms: number, token: Tools.CancelToken) {
+    return new Promise((resolve, reject) => {
+
+        token.onCancelled = reject
+        globalThis.setTimeout(resolve, ms)
+    });
 }
 
 const colorList9 = [
@@ -192,27 +247,29 @@ const colorList9 = [
 ]
 
 @Component("Tile")
-class Tile {
+export class Tile {
+
     public x: number
     public y: number
     public entity: Entity
     public isActive: boolean
-  private defaultMaterial: Material
-  private emisseveMaterial: Material
 
-    constructor(x: number, y: number, defaultMaterial: Material, emissiveMaterial: Material, entity: Entity) {
+    private defaultMaterial: Material
+    private activeMaterial: Material
+
+    constructor(x: number, y: number, defaultMaterial: Material, activeMaterial: Material, entity: Entity) {
         this.x = x
         this.y = y
-        log(x + ":" + y + " tilt inited")
-         this.defaultMaterial = defaultMaterial
-        this.emisseveMaterial = emissiveMaterial
+        log("Creating Tile [" + x + ":" + y + "].")
+        this.defaultMaterial = defaultMaterial
+        this.activeMaterial = activeMaterial
         this.entity = entity
         this.isActive = false;
-  }
+    }
 
     public setActive(value: boolean) {
         if (value) {
-            this.entity.addComponentOrReplace(this.emisseveMaterial)
+            this.entity.addComponentOrReplace(this.activeMaterial)
             this.isActive = true
             source.volume = 1
             source.playOnce()

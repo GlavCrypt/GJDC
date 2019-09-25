@@ -13,7 +13,7 @@ export class Tools
 
   public static getRandomInt(max: number) 
   {
-    return Math.floor(Math.random() * Math.floor(max));
+    return Math.round(Math.random() * Math.floor(max));
   }
 
   public static getX(n: number){
@@ -28,4 +28,16 @@ export class Tools
     return y
   }
   
+}
+
+export class CancelToken {
+
+    public isCancelled: boolean = false
+    public onCancelled: (reason: any) => void
+
+    public cancel(reason: any) {
+        this.isCancelled = true
+        this.onCancelled(reason)
+    }
+
 }
